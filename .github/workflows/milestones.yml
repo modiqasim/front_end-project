@@ -17,8 +17,8 @@ jobs:
         env:
           # Startvecka (en måndag). Torsdagen den veckan blir torsdag nr 1.
           ANCHOR_DATE: "2026-10-05"
-          # Hur många veckor framåt milestones skapas. 6 = en hel cykel med alla tre färger.
-          LOOKAHEAD_WEEKS: "6"
+          # Hur många veckor framåt milestones skapas. 4 = innevarande vecka + tre veckor till.
+          LOOKAHEAD_WEEKS: "4"
         with:
           script: |
             const { owner, repo } = context.repo;
