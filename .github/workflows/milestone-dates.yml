@@ -20,7 +20,7 @@ jobs:
       - uses: actions/github-script@v8
         env:
           # Ditt användarnamn eller organisationsnamn (det som står i projektets URL)
-          PROJECT_OWNER: "ditt-namn-här"
+          PROJECT_OWNER: "modiqasim"
           # Projektets nummer, t.ex. 3 från github.com/users/ditt-namn/projects/3
           PROJECT_NUMBER: "1"
           # Namnen på datumfälten i projektet (måste stämma exakt)
