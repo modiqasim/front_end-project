@@ -1,0 +1,87 @@
+# Lägg filen i ditt repo som: .github/workflows/milestones.yml
+name: Skapa milestones
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"   # Varje måndag 05:00 UTC
+  workflow_dispatch:       # Gör att du kan köra den manuellt under Actions-fliken
+
+permissions:
+  issues: write            # Krävs för att skapa milestones
+
+jobs:
+  create-milestones:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          # Startvecka (en måndag). Härifrån räknas varannan och var tredje vecka.
+          ANCHOR_DATE: "2026-10-05"
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const DAY = 24 * 60 * 60 * 1000;
+
+            // De tre typerna. Ändra emoji, namn och beskrivning som du vill.
+            const types = [
+              { every: 1, emoji: "🔵", name: "Veckovis",         description: "Skapas automatiskt varje vecka" },
+              { every: 2, emoji: "🟢", name: "Varannan vecka",   description: "Skapas automatiskt varannan vecka" },
+              { every: 3, emoji: "🔴", name: "Var tredje vecka", description: "Skapas automatiskt var tredje vecka" },
+            ];
+
+            // ISO-veckonummer och ISO-år
+            function isoWeek(date) {
+              const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+              const day = d.getUTCDay() || 7;
+              d.setUTCDate(d.getUTCDate() + 4 - day);
+              const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+              return {
+                week: Math.ceil(((d - yearStart) / DAY + 1) / 7),
+                year: d.getUTCFullYear(),
+              };
+            }
+
+            // Måndagen i innevarande vecka (UTC)
+            const now = new Date();
+            const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+
+            const anchor = new Date(process.env.ANCHOR_DATE + "T00:00:00Z");
+            const weeksSince = Math.round((monday - anchor) / (7 * DAY));
+            if (weeksSince < 0) {
+              core.info("Startdatumet har inte passerats än. Inget skapas.");
+              return;
+            }
+
+            // Hämta befintliga milestones så att vi inte skapar dubbletter
+            const existing = await github.paginate(github.rest.issues.listMilestones, {
+              owner, repo, state: "all", per_page: 100,
+            });
+            const titles = new Set(existing.map(m => m.title));
+
+            for (const t of types) {
+              // Torsdag nr 1 = startveckan. Grön på nr 2, 4, 6 … och röd på nr 3, 6, 9 …
+              const thursdayNo = weeksSince + 1;
+              if (thursdayNo % t.every !== 0) continue;
+
+              // Deadline: torsdagen i innevarande vecka (samma dag för alla typer,
+              // så de överlappar när flera typer infaller samma vecka)
+              const due = new Date(monday.getTime() + 3 * DAY);
+              due.setUTCHours(12);
+
+              const { week, year } = isoWeek(due);
+              const title = `${t.emoji} ${t.name} v${week} ${year}`;
+
+              if (titles.has(title)) {
+                core.info(`Finns redan: ${title}`);
+                continue;
+              }
+
+              await github.rest.issues.createMilestone({
+                owner, repo,
+                title,
+                description: t.description,
+                due_on: due.toISOString(),
+              });
+              core.info(`Skapade: ${title} (deadline ${due.toISOString().slice(0, 10)})`);
+            }
