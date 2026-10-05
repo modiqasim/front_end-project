@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   create-milestones:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v8
         env:
           # Startvecka (en måndag). Torsdagen den veckan blir torsdag nr 1.
           ANCHOR_DATE: "2026-10-05"
