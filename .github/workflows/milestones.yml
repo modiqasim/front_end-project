@@ -15,18 +15,21 @@ jobs:
     steps:
       - uses: actions/github-script@v7
         env:
-          # Startvecka (en måndag). Härifrån räknas varannan och var tredje vecka.
+          # Startvecka (en måndag). Torsdagen den veckan blir torsdag nr 1.
           ANCHOR_DATE: "2026-10-05"
+          # Hur många veckor framåt milestones skapas. 6 = en hel cykel med alla tre färger.
+          LOOKAHEAD_WEEKS: "6"
         with:
           script: |
             const { owner, repo } = context.repo;
             const DAY = 24 * 60 * 60 * 1000;
+            const lookahead = parseInt(process.env.LOOKAHEAD_WEEKS, 10);
 
             // De tre typerna. Ändra emoji, namn och beskrivning som du vill.
             const types = [
-              { every: 1, emoji: "🔵", name: "Veckovis",         description: "Skapas automatiskt varje vecka" },
-              { every: 2, emoji: "🟢", name: "Varannan vecka",   description: "Skapas automatiskt varannan vecka" },
-              { every: 3, emoji: "🔴", name: "Var tredje vecka", description: "Skapas automatiskt var tredje vecka" },
+              { every: 1, emoji: "🔵", name: "Veckovis",         description: "Skapas automatiskt varje torsdag" },
+              { every: 2, emoji: "🟢", name: "Varannan vecka",   description: "Skapas automatiskt varannan torsdag" },
+              { every: 3, emoji: "🔴", name: "Var tredje vecka", description: "Skapas automatiskt var tredje torsdag" },
             ];
 
             // ISO-veckonummer och ISO-år
@@ -43,15 +46,10 @@ jobs:
 
             // Måndagen i innevarande vecka (UTC)
             const now = new Date();
-            const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-            monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+            const thisMonday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            thisMonday.setUTCDate(thisMonday.getUTCDate() - ((thisMonday.getUTCDay() + 6) % 7));
 
             const anchor = new Date(process.env.ANCHOR_DATE + "T00:00:00Z");
-            const weeksSince = Math.round((monday - anchor) / (7 * DAY));
-            if (weeksSince < 0) {
-              core.info("Startdatumet har inte passerats än. Inget skapas.");
-              return;
-            }
 
             // Hämta befintliga milestones så att vi inte skapar dubbletter
             const existing = await github.paginate(github.rest.issues.listMilestones, {
@@ -59,29 +57,40 @@ jobs:
             });
             const titles = new Set(existing.map(m => m.title));
 
-            for (const t of types) {
+            let created = 0;
+
+            // Gå igenom innevarande vecka och kommande veckor
+            for (let offset = 0; offset < lookahead; offset++) {
+              const monday = new Date(thisMonday.getTime() + offset * 7 * DAY);
+              const weeksSince = Math.round((monday - anchor) / (7 * DAY));
+              if (weeksSince < 0) continue; // Före startveckan
+
               // Torsdag nr 1 = startveckan. Grön på nr 2, 4, 6 … och röd på nr 3, 6, 9 …
               const thursdayNo = weeksSince + 1;
-              if (thursdayNo % t.every !== 0) continue;
 
-              // Deadline: torsdagen i innevarande vecka (samma dag för alla typer,
-              // så de överlappar när flera typer infaller samma vecka)
               const due = new Date(monday.getTime() + 3 * DAY);
               due.setUTCHours(12);
-
               const { week, year } = isoWeek(due);
-              const title = `${t.emoji} ${t.name} v${week} ${year}`;
 
-              if (titles.has(title)) {
-                core.info(`Finns redan: ${title}`);
-                continue;
+              for (const t of types) {
+                if (thursdayNo % t.every !== 0) continue;
+
+                const title = `${t.emoji} ${t.name} v${week} ${year}`;
+                if (titles.has(title)) {
+                  core.info(`Finns redan: ${title}`);
+                  continue;
+                }
+
+                await github.rest.issues.createMilestone({
+                  owner, repo,
+                  title,
+                  description: t.description,
+                  due_on: due.toISOString(),
+                });
+                titles.add(title);
+                created++;
+                core.info(`Skapade: ${title} (deadline ${due.toISOString().slice(0, 10)})`);
               }
-
-              await github.rest.issues.createMilestone({
-                owner, repo,
-                title,
-                description: t.description,
-                due_on: due.toISOString(),
-              });
-              core.info(`Skapade: ${title} (deadline ${due.toISOString().slice(0, 10)})`);
             }
+
+            core.info(`Klart. ${created} nya milestones skapades.`);
